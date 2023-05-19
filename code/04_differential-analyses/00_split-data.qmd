@@ -1,0 +1,114 @@
+---
+title: "Subset by time for DE"
+format: html
+editor: source
+---
+
+In this document, I divide the mapping file and the MT TPM file into 5 times subsets: D-0, D8, D28, D42, D84.
+
+We work with the raw counts, and then normalize using the DESeq2 median normalization of the log ratios.
+
+# Import packages and data
+# ------------------------
+## R Project set up
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r, eval=FALSE}
+#install.packages("pacman")
+#BiocManager::install(c('limma', 'DESeq2', 'AnnotationDbi', 'org.Mm.eg.db', 'ReportingTools', 'GO.db', 'GOstats', 'pathview', 'gage', 'gageData', 'select'))
+```
+## My functions
+```{r}
+source(here::here('code', 'my_functions.R'))
+```
+
+```{r}
+pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq2, AnnotationDbi, org.Mm.eg.db, ReportingTools, GO.db, GOstats, pathview, gage)
+```
+
+## Data
+### counts
+```{r}
+countData <- data.table::fread(file = here::here('data', 'raw', 'merged_gene_abundance.tsv'), header = TRUE)
+```
+### metadata
+```{r}
+meta <- read.csv(file = here::here('data', 'raw', 'mapping_file.txt'), header = TRUE, sep = "\t")
+meta$Time <- as.factor((meta$Time))
+meta$Time <- factor(meta$Time, 
+                    levels = c('D-0', 'D8', 'D28', 'D42', 'D84'), 
+                    labels = c('D0', 'D8', 'D28', 'D42', 'D84'))
+```
+
+
+# ------------------------
+# Split metadata
+# ------------------------
+## Subset metadata
+based on time using the function subExpMeta that I created. Stored in code/my_functions.R
+```{r}
+times = c('D0', 'D8', 'D28', 'D42', 'D84')
+subExpMeta(meta, times, here::here('data', 'clean')) 
+```
+
+## load subsetted metadata
+```{r}
+file_list <- list.files(path = here::here('data', 'clean'), pattern = "^meta", full.names = TRUE)
+for (file in file_list) {
+   file_name <- gsub(".csv", "", gsub("^.*clean/", "", file), gsub("-", "", file))
+   assign(file_name, read.csv(file, stringsAsFactors = FALSE))
+}
+#gdata::keep(countData, subExpMeta, sure = TRUE)
+```
+
+## Set  row names
+Get the list of objects in the environment, filter objects starting with "meta", then set the rownames as the first column or "SampleID" for each meta object
+```{r}
+rownames(metaD0) <- metaD0$alias
+metaD0 <- metaD0[,-1]
+rownames(metaD8) <- metaD8$SampleID
+metaD8 <- metaD8[,-1]
+rownames(metaD28) <- metaD28$SampleID
+metaD28 <- metaD28[,-1]
+rownames(metaD42) <- metaD42$SampleID
+metaD42 <- metaD42[,-1]
+rownames(metaD84) <- metaD84$SampleID
+metaD84 <- metaD84[,-1]
+```
+
+
+# ------------------------
+# Split countData
+# ------------------------
+## Get names
+
+```{r}
+a <- rownames(metaD0)
+aa <- sub(".*_i5_", "", a)
+b <- colnames(countData)
+bb <- sub(".*_i5_", "", b)
+cc <- sub("^[^.]+\\.", "", bb)
+dd <- sub("^[^.]+\\.", "", aa)
+rownames(metaD0) <- 
+colnames(countData) <- cc
+to_delete =(c('a', 'aa', 'b', 'bb'))
+rm(list = to_delete)
+rm(countData)
+```
+
+```{r}
+rm(meta)
+subExpMeta <- function(meta, times, output_dir) {
+   purrr::map(times, ~ {
+      to_keep <- meta$Time == .x
+      meta_subset <- meta[to_keep, ]
+      file_name <- paste0("meta", .x, ".csv")
+      file_path <- file.path(output_dir, file_name)
+      write.csv(meta_subset, file = file_path, row.names = FALSE)
+   })
+}
+```
+
