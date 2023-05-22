@@ -1,0 +1,59 @@
+---
+title: "01_differential-expression_D8"
+format: html
+author: Sara Correa Garcia
+---
+
+# Import packages and data
+# ------------------------
+## R Project set up
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r, eval=FALSE}
+#install.packages("pacman")
+#BiocManager::install(c('limma', 'DESeq2', 'AnnotationDbi', 'org.Mm.eg.db', 'ReportingTools', 'GO.db', 'GOstats', 'pathview', 'gage', 'gageData', 'select'))
+```
+## My functions
+```{r}
+source(here::here('code', 'my_functions.R'))
+```
+
+```{r}
+pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq2, AnnotationDbi, org.Mm.eg.db, ReportingTools, GO.db, GOstats, pathview, gage)
+```
+
+## Data
+### counts
+```{r}
+countData <- data.table::fread(file = here::here('data', 'clean', 'merged_gene_abundance_D8.tsv'), header = TRUE)
+```
+
+### metadata
+```{r}
+meta <- read.csv(file = here::here('data', 'clean', 'metaD8.csv'), header = TRUE, sep = ",")
+meta$Time <- NULL
+meta$Sampling_date <- NULL
+meta$SampleID <- NULL
+```
+
+# ------------------------
+# Clean Data
+# ------------------------
+
+## Clean countData names to match metadata
+```{r}
+colnames(countData) <- sub(".*_i5_", "", colnames(countData))
+colnames(countData) <- sub("^[^.]+\\.", "", colnames(countData))
+countData <- countData[,order(colnames(countData))]
+```
+
+## Inner join 
+Keep only samples present in countData
+```{r}
+meta.sorted <- meta[order(meta$alias),]
+inner_meta <- inner_join()
+```
+
