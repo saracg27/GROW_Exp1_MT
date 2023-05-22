@@ -13,7 +13,9 @@ crash.log
 .DS_Store
 .Rhistory
 
+
 # Other directories
 code/images
 miscellanea/
 code/.DS_Store
+code/100_Metatranscriptomic-analysis-guidelines.qmd
