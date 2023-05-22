@@ -33,7 +33,9 @@ pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq
 ### counts
 ```{r}
 countData <- data.table::fread(file = here::here('data', 'raw', 'merged_gene_abundance.tsv'), header = TRUE)
+
 ```
+
 ### metadata
 ```{r}
 meta <- read.csv(file = here::here('data', 'raw', 'mapping_file.txt'), header = TRUE, sep = "\t")
@@ -42,6 +44,54 @@ meta$Time <- factor(meta$Time,
                     levels = c('D-0', 'D8', 'D28', 'D42', 'D84'), 
                     labels = c('D0', 'D8', 'D28', 'D42', 'D84'))
 ```
+
+# ------------------------
+# Clean counts
+# ------------------------
+
+We know that some libraries needed to be resequenced and are repeated in the MT dataset. I need to find them the repeated ones and drop the old sequencing results:
+### Check which are the duplicated ones
+D-0 and D8 samples
+```{r}
+new <- grep(pattern = "1945", cols, value = T) 
+```
+
+### Create a data set to subset based on two values
+```{r}
+cols <- as.data.frame(colnames(countData))
+cols$alias <- cols$`colnames(countData)`
+cols$alias <- sub(".*_i5_", "", cols$alias)
+cols$alias  <- sub("^[^.]+\\.", "", cols$alias)
+```
+
+### Identify duplicated column names and subset
+Subset based on condition no duplicates or contains 1945
+```{r}
+duplicates <- duplicated(cols$alias) | duplicated(cols$alias, fromLast = TRUE) 
+col_subset <- cols[!duplicates | grepl("1945", cols$`colnames(countData)`), ] 
+```
+
+### Extract the column names to match
+```{r}
+cols_to_match <- col_subset$`colnames(countData)` 
+```
+
+### Subset countData
+```{r}
+countData_b <- dplyr::select(countData, all_of(cols_to_match)) 
+```
+
+### Export good count table
+```{r}
+fwrite(countData_b, file = here::here("data", "clean", "merged_gene_abundance_clean.tsv"))
+```
+
+### Clean environment
+```{r}
+to_delete <- c("new", "cols", "duplicates", "col_subset", "cols_to_match", "countData")
+rm(list = to_delete)
+```
+
 
 
 # ------------------------
@@ -67,48 +117,73 @@ for (file in file_list) {
 ## Set  row names
 Get the list of objects in the environment, filter objects starting with "meta", then set the rownames as the first column or "SampleID" for each meta object
 ```{r}
-rownames(metaD0) <- metaD0$alias
-metaD0 <- metaD0[,-1]
-rownames(metaD8) <- metaD8$SampleID
-metaD8 <- metaD8[,-1]
-rownames(metaD28) <- metaD28$SampleID
-metaD28 <- metaD28[,-1]
-rownames(metaD42) <- metaD42$SampleID
-metaD42 <- metaD42[,-1]
-rownames(metaD84) <- metaD84$SampleID
-metaD84 <- metaD84[,-1]
+obj_list <- ls() # Get the list of objects in the environment
+meta_objs <- obj_list[grepl("^meta", obj_list)] # Filter objects starting with "meta"
+meta_list <- lapply(meta_objs, get) # Create a list of dataframes from the filtered objects
+meta_list <- lapply(meta_list, function(meta) { # Set rownames for each dataframe in meta_list
+  rownames(meta) <- meta$alias
+  return(meta)
+})
 ```
 
 
 # ------------------------
 # Split countData
 # ------------------------
-## Get names
 
 ```{r}
-a <- rownames(metaD0)
-aa <- sub(".*_i5_", "", a)
-b <- colnames(countData)
-bb <- sub(".*_i5_", "", b)
-cc <- sub("^[^.]+\\.", "", bb)
-dd <- sub("^[^.]+\\.", "", aa)
-rownames(metaD0) <- 
-colnames(countData) <- cc
-to_delete =(c('a', 'aa', 'b', 'bb'))
-rm(list = to_delete)
-rm(countData)
+#countData <- fread(file = here::here("data", "clean", "merged_gene_abundance_clean.tsv"), header = TRUE)
 ```
+
+## Clean countData names to match metadata
+```{r}
+colnames(countData) <- sub(".*_i5_", "", colnames(countData))
+colnames(countData) <- sub("^[^.]+\\.", "", colnames(countData))
+```
+
+## Divide MT into 4 different chunks of countData
 
 ```{r}
-rm(meta)
-subExpMeta <- function(meta, times, output_dir) {
-   purrr::map(times, ~ {
-      to_keep <- meta$Time == .x
-      meta_subset <- meta[to_keep, ]
-      file_name <- paste0("meta", .x, ".csv")
-      file_path <- file.path(output_dir, file_name)
-      write.csv(meta_subset, file = file_path, row.names = FALSE)
-   })
-}
-```
+# Wet code
+# pattern <- "D-0"
+# matching_cols0 <- grep(pattern, colnames(countData), value = TRUE)# Find matching column names
+# countData0 <- countData |> 
+#    dplyr::select(1, all_of(matching_cols0)) 
+# fwrite(countData0, file = here::here("data", "clean", "merged_gene_abundance_D-0.tsv"))
+# rm(countData0)
+# 
+# pattern <- "D8"
+# matching_cols8 <- grep(pattern, colnames(countData), value = TRUE)# Find matching column names
+# countData8 <- countData |> 
+#    dplyr::select(1, all_of(matching_cols8)) 
+# fwrite(countData8, file = here::here("data", "clean", "merged_gene_abundance_D-8.tsv"))
+# rm(countData8)
+# 
+# pattern <- "D28"
+# matching_cols28 <- grep(pattern, colnames(countData), value = TRUE)# Find matching column names
+# countData28 <- countData |> 
+#    dplyr::select(1, all_of(matching_cols28)) 
+# fwrite(countData28, file = here::here("data", "clean", "merged_gene_abundance_D-28.tsv"))
+# rm(countData28)
+# 
+# pattern <- "D42"
+# matching_cols42 <- grep(pattern, colnames(countData), value = TRUE)# Find matching column names
+# countData42 <- countData |> 
+#    dplyr::select(1, all_of(matching_cols42)) 
+# fwrite(countData42, file = here::here("data", "clean", "merged_gene_abundance_D-42.tsv"))
+# rm(countData42)
 
+
+# Dry version
+patterns <- c("D-0", "D8", "D28", "D42")
+
+map(patterns, ~{
+  matching_cols <- grep(.x, colnames(countData), value = TRUE)  # Find matching column names
+  countData_subset <- countData %>%
+    dplyr::select(1, all_of(matching_cols))
+  file_name <- paste0("merged_gene_abundance_", .x, ".tsv")
+  fwrite(countData_subset, file = here::here("data", "clean", file_name))
+  rm(countData_subset)
+})
+
+```
