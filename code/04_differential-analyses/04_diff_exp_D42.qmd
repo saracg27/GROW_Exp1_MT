@@ -28,12 +28,12 @@ pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq
 ## Data
 ### counts
 ```{r}
-countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D8.tsv'), col_names = TRUE)
+countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D42.tsv'), col_names = TRUE)
 ```
 
 ### metadata
 ```{r}
-meta <- read.csv(file = here::here('data', 'clean', 'metaD8.csv'), header = TRUE, sep = ",")
+meta <- read.csv(file = here::here('data', 'clean', 'metaD42.csv'), header = TRUE, sep = ",")
 ```
 
 # ------------------------
@@ -115,7 +115,8 @@ hist(logCountData$`25-Mesocosm-1-1-Exp1-D8-Sed`, br = 50)
 ## Reduce uninformative features
 Threashold of 10 (decided somewhat randomly)
 ```{r}
-countData1 <- countData[rowSums(countData) > 10,] # Down from 26M genes to 2 237 972 genes (2.2M)
+countData1 <- countData[rowSums(countData) > 10,] # Down from 26M genes to 2 339 472 genes (2.2M)
+rm(countData)
 ```
 
 ## Check data is in order
@@ -126,6 +127,9 @@ if (all(row.names(meta) == colnames(countData1))) {
   print("ERROR: not all row names are the same")
 }
 ```
+
+When running the previous code for the first time, I realized that the sample 89-Mesocosm-9-2-Exp1-D42-Sed was missing from the metadata. I added the line in metaD42.csv, as: the sequencing number is copied from the 90 Sample (same mesocosm), but need to be checked with the actual name in countData. 
+NS.1871.002.IDT_i7_79---IDT_i5_79.89-Mesocosm-9-2-Exp1-D42-Sed
 
 # ----------
 # Create Deseq object
