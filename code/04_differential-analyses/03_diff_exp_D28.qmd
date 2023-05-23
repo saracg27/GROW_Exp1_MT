@@ -115,7 +115,8 @@ hist(logCountData$`25-Mesocosm-1-1-Exp1-D8-Sed`, br = 50)
 ## Reduce uninformative features
 Threashold of 10 (decided somewhat randomly)
 ```{r}
-countData1 <- countData[rowSums(countData) > 10,] # Down from 26M genes to 2 237 972 genes (2.2M)
+countData1 <- countData[rowSums(countData) > 10,] # Down from 26M genes to 2 411 664 genes (2.41M)
+rm(countData) # erase when finished if memory needed
 ```
 
 ## Check data is in order
