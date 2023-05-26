@@ -1,0 +1,37 @@
+---
+title: "01B_diff_exp_D8"
+author: "Sara Correa Garcia"
+format: html
+---
+
+# Import packages and data
+# ------------------------
+## R Project set up
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r, eval=FALSE}
+#install.packages("pacman")
+#BiocManager::install(c('limma', 'DESeq2', 'AnnotationDbi', 'org.Mm.eg.db', 'ReportingTools', 'GO.db', 'GOstats', 'pathview', 'gage', 'gageData', 'select'))
+```
+## My functions
+```{r, eval=FALSE}
+source(here::here('data', 'clean', 'DE_D8.RData'))
+```
+
+```{r, eval=FALSE}
+pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq2, AnnotationDbi, org.Mm.eg.db, ReportingTools, GO.db, GOstats, pathview, gage)
+```
+
+## Data
+### counts
+```{r}
+countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D8.tsv'), col_names = TRUE)
+```
+
+### metadata
+```{r}
+meta <- read.csv(file = here::here('data', 'clean', 'metaD8.csv'), header = TRUE, sep = ",")
+```
