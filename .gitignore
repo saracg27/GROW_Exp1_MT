@@ -19,3 +19,5 @@ code/images
 miscellanea/
 code/.DS_Store
 code/100_Metatranscriptomic-analysis-guidelines.qmd
+code/04_differential-analyses/slurm-outputs/
+
