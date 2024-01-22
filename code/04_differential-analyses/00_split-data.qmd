@@ -22,7 +22,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 ## My functions
 ```{r}
-source(here::here('code', 'my_functions.R'))
+source(here::here('code', 'subExpMeta.R'))
 ```
 
 ```{r}
@@ -98,7 +98,7 @@ rm(list = to_delete)
 # Split metadata
 # ------------------------
 ## Subset metadata
-based on time using the function subExpMeta that I created. Stored in code/my_functions.R
+based on time using the function subExpMeta that I created. Stored in code/subExpMeta.R
 ```{r}
 times = c('D0', 'D8', 'D28', 'D42', 'D84')
 subExpMeta(meta, times, here::here('data', 'clean')) 
@@ -187,3 +187,13 @@ map(patterns, ~{
 })
 
 ```
+
+
+# ------------------------
+# Split By desired contrasts
+# ------------------------
+
+```{r}
+
+```
+
