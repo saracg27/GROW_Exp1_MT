@@ -19,5 +19,8 @@ code/images
 miscellanea/
 code/.DS_Store
 code/100_Metatranscriptomic-analysis-guidelines.qmd
+code/04_differential-analyses/100_Metatranscriptomic-analysis-guidelines.qmd
+code/04_differential-analyses/111_guide_Differential-gene-expression-analyses.qmd
+code/04_differential-analyses/112_EY-guide_to_MT.qmd
 code/04_differential-analyses/slurm-outputs/
-
+code/04_differential-analyses/Rplots.pdf
