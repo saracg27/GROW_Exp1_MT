@@ -1,0 +1,261 @@
+---
+title: "Load packages and data"
+format: html
+---
+Packages needed for the analysis are directly loaded from the .Rprofile file, and listed in code/Rlibraries.R
+
+# IMPORT DATA
+
+## Annotations
+```{r}
+tic()
+annot = vroom(file = here::here("data", "raw", "annotations.tsv")) # 29.5 secs.
+toc()
+str(annot)
+product_names <- annot$kegg_definition
+
+```
+The annotations file is paired with the one from the MG data set. Therefore, a total of 26 423 794 genes are annotated. 33 columns registered values for taxonomic information and functional annotation from different databases: KEGG, COG, KOG, pfam and tigrfam. 
+
+Inspect annot column names
+```{r}
+colnames(annot)
+```
+
+Obtain number of distinct values for each column in annot. 
+```{#r}
+annot = as.data.frame(annot)
+annot = annot |> mutate_if(is.character,as.factor)
+annot_distincts = annot |>  map_int(n_distinct)
+annot_distincts = as.data.frame(annot_distincts)
+#n_distinct(annot$product_name) # 23,368 - this shows 
+```
+
+## NA degradation genes annotations (generated in MG)
+```{r}
+tic()
+annot_NA = vroom(file = here::here("data", "clean", "degradation_gene_annotations.csv")) # 0.38 secs - 18,272 obs in 34 vars
+toc()
+annot_NA_percentage = 18272/26423794*100 # 0.07%
+```
+
+# -------------------------------
+#NAFC GENES
+## Import MT gene dataset
+```{r}
+MT = vroom(file = here::here("data", "raw", "merged_gene_abundance_cpm.tsv")) # 88.5 secs -  26,423,794 obs in 140 vars
+```
+
+Inspect
+```{r}
+colnames(MT)
+MT = as.data.frame(MT)
+View(MT[1:5,1:10])
+rownames(MT) = MT$...1 # get gene code as rownames
+```
+##Inner join NA degradation
+```{r}
+names(MT)[names(MT) == "...1"] = "contig_id" # Rename the contig_id variable from ...1 column in MT to match value in annot_NA and do inner_join with this variable.
+#MT$contig_id = MT$...1 
+#MT$...1 = NULL # Erase ...1
+MT_NA_full = left_join(x = annot_NA, y = MT) # Find NA degradation gene transcript contigs
+MT_NA = MT_NA_full[, grepl("NEB", names(MT_NA_full))] # keep only samples
+MT_NA = cbind(MT_NA_full$contig_id, MT_NA) # attach contig_id
+```
+
+## Find contigs with rowSum > 0 (contig present in at least one sample)
+```{r}
+rowsum = as.data.frame(rowSums(MT_NA[sapply(MT_NA, is.numeric)])) # Calculate rowsums 
+nonzeros = apply(rowsum, 2, function(c)sum(c!=0)) # identify number of non-zero values. 17,560 out of 18,272 contigs is found in MT compared to MG.
+ratio.present.NA.transcripts = nonzeros / nrow(rowsum) * 100 # 96.1 NA degradation genes identified in MG were found in MT data set. 
+```
+
+## Keep only NA contigs with presence in at least one sample
+```{r}
+MT_NA_pstv = MT_NA[rowSums(MT_NA[sapply(MT_NA, is.numeric)]) > 0,] # filter
+rowsum = as.data.frame(rowSums(MT_NA_pstv[sapply(MT_NA_pstv, is.numeric)])) # Check that there are no zeros
+```
+
+## Filter out in Annot_NA the contigs not selected in MT_NA_pstv
+```{r}
+annot_NA_pstv = annot_NA |> filter(contig_id %in% MT_NA_pstv$`MT_NA_full$contig_id`) # 17,560 obs in 34 vars
+```
+
+## Export Clean annot_NA and Clean MT_NA
+```{r}
+vroom::vroom_write(annot_NA_pstv, file = here::here("data", "clean", "annot_NA_present_in_MT.tsv")) #9.3 MB
+vroom::vroom_write(MT_NA_pstv, file = here::here("data", "clean", "merged_contig_abundance_cpm_NAgenes_present_in_MT.tsv")) # 6.1 MB
+```
+
+### Clean up environment
+```{r}
+rm(annot)
+rm(MT)
+rm(annot)
+rm(MT_NA)
+rm(MT_NA_full)
+rm(MT_NA_pstv)
+rm(rowsum)
+rm(nonzeros)
+rm(ratio.present.NA.transcripts)
+rm(annot_NA_pstv)
+```
+
+
+
+
+# -------------------------------
+# ACC DEAMINASE GENES
+## Find Acd genes in annotation
+```{r}
+annot_acc = annot[annot$kegg_entry == "K01505",] # Kegg entry code for 1-aminocyclopropane-1-carboxylate deaminase is K01505. The search in the annotation database returns 443 obs.
+```
+
+## Inspect annot_acc
+```{r}
+acc_species = levels(as.factor(annot_acc$tax_specie)) # 83 bacterial species were found to contain acc deaminase genes. Rhodococcus opacus, known for its NA degradation capacity is among them. Is there more NA degradation gene transcripts in the rhizosphere than in sediments coming from R. opacus? Is there a co-ocurring increase in acd transcripts in the rhizopshere? 
+```
+
+##Inner join NA degradation
+```{r}
+names(MT)[names(MT) == "...1"] = "gene_id" # Rename the gene_id variable from ...1 column in MT to match value in annot_acc and do inner_join with this variable.
+#MT$contig_id = MT$...1 
+#MT$...1 = NULL # Erase ...1
+MT_acc_full = left_join(x = annot_acc, y = MT) # Find acc gene transcripts
+MT_acc = MT_acc_full[, grepl("NEB", names(MT_acc_full))] # keep only samples
+MT_acc = cbind(MT_acc_full$gene_id, MT_acc) # attach gene_id
+```
+
+## Find genes with rowSum > 0 (gene present in at least one sample)
+```{r}
+rowsum = as.data.frame(rowSums(MT_acc[sapply(MT_acc, is.numeric)])) # Calculate rowsums 
+nonzeros = apply(rowsum, 2, function(c)sum(c!=0)) # identify number of non-zero values. 322 out of 443 contigs is found in MT compared to MG.
+ratio.present.NA.transcripts = nonzeros / nrow(rowsum) * 100 # 72.7% Acc deaminase genes identified in MG were found in MT data set. 
+```
+
+## Keep only acc deaminase genes with presence in at least one sample
+```{r}
+MT_acc_pstv = MT_acc[rowSums(MT_acc[sapply(MT_acc, is.numeric)]) > 0,] # filter
+rowsum = as.data.frame(rowSums(MT_acc_pstv[sapply(MT_acc_pstv, is.numeric)])) # Check that there are no zeros
+```
+
+## Filter out in Annot_acc the genes not selected in MT_acc_pstv
+```{r}
+annot_acc_pstv = annot_acc |> filter(gene_id %in% MT_acc_pstv$`MT_acc_full$gene_id`) # 17,560 obs in 34 vars
+levels(as.factor(annot_acc_pstv$tax_phylum)) # 9 phylum and NULL: Acidobacteria, Actinobacteria, Bacteroidetes, Candidatus Rokubacteria, Chlamydiae, Chlorobi, Chloroflexi, Ignavibacteriae, Protebacteria. NULL. 
+annot_acc_pstv[sapply(annot_acc_pstv, is.character)] = lapply(annot_acc_pstv[sapply(annot_acc_pstv, is.character)], as.factor)
+str(annot_acc_pstv)
+plyr::count(annot_acc_pstv$tax_phylum) # most were NULL (115 entries), 89 Proteobacteria, 42 Bacteroidetes and Actinobacteria, 17 Chloroflexi, 10 Ignavibacteriae. Candidatus Rokubacteria, Chlamydiae, Chlorobi and Acidobacteria had less than 3 counts for acc deaminase gene transcripts. 
+plyr::count(annot_acc_pstv$tax_class) # Proteobacteria division: 58 Alpha, 16 Beta, 9 Gamma. 
+plyr::count(annot_acc_pstv$tax_genus) # Bradyrhizobium was the most active acc deaminase producer, with 21 gene transcript per million gene counts. Gaiella followed with 9, and then Mesorhizobium with 8 and Flavobacterium with 5. The rest had les than 3 cpm. NULL were 227 counts. 
+
+```
+
+## Export Clean annot_acc and Clean MT_acc
+```{r}
+vroom::vroom_write(annot_acc_pstv, file = here::here("data", "clean", "annot_acc_present_in_MT.tsv")) # 131 kB
+vroom::vroom_write(MT_acc_pstv, file = here::here("data", "clean", "merged_gene_abundance_cpm_acc-deaminase-genes_present_in_MT.tsv")) # 111 kB
+```
+
+### Clean up environment
+```{r}
+a= 2
+rm(list=setdiff(ls(), c("annot", "MT")))
+```
+
+
+# -------------------------------
+# Gene family functions in annotation
+```{r}
+annot_functions = as.data.frame(levels(as.factor(annot$kegg_pathway)))
+annot_functions = as.data.frame(annot_functions)
+
+annot_definitions = as.data.frame(levels(as.factor(annot$kegg_definition)))
+annot_gene_names = as.data.frame(levels(as.factor(annot$product_name)))
+```
+
+
+
+
+
+# -------------------------------
+# DATE
+## D0
+```{r}
+MT_D0 = MT[, grepl("D-0", names(MT))]# 10,360,835 contigs in 34
+MT_D0 = MT_D0[rowSums(MT_D0 > 0),] # 7,096,181 contigs in 34 variables
+vroom::vroom_write(MT_D0, file = here::here("data", "clean", "D-0_merged_contig_abundance_cpm.tsv"))
+
+annot_D0 = 
+```
+
+## D8
+```{r}
+MT_D8 = MT[, grepl("D8", names(MT))]# 10,360,835 contigs in 41
+MT_D8 = MT_D8[rowSums(MT_D8 > 0),] # 7,096,181 contigs in 34 variables
+vroom::vroom_write(MT_D8, file = here::here("data", "clean", "D8_merged_contig_abundance_cpm.tsv"))
+```
+
+
+# -------------------------------
+# NAFC CONTIGS
+
+## MT data contigs
+```{r}
+MT = vroom(file = here::here("data", "raw", "01_merged_contig_abundance_cpm.tsv")) # 18.5 secs
+head(MT)
+colnames(MT)
+MT = as.data.frame(MT)
+View(MT[1:5,1:10])
+rownames(MT) = MT$...1 # get contig code as rownames
+```
+
+##Inner join NA degradation
+```{r}
+names(MT)[names(MT) == "...1"] = "contig_id" # Rename the contig_id variable from ...1 column in MT to match value in annot_NA and do inner_join with this variable.
+#MT$contig_id = MT$...1 
+#MT$...1 = NULL # Erase ...1
+MT_NA_full = left_join(x = annot_NA, y = MT) # Find NA degradation gene transcript contigs
+MT_NA = MT_NA_full[, grepl("NEB", names(MT_NA_full))] # keep only samples
+MT_NA = cbind(MT_NA_full$contig_id, MT_NA) # attach contig_id
+```
+
+## Find contigs with rowSum > 0 (contig present in at least one sample)
+```{r}
+rowsum = as.data.frame(rowSums(MT_NA[sapply(MT_NA, is.numeric)])) # Calculate rowsums 
+nonzeros = apply(rowsum, 2, function(c)sum(c!=0)) # identify number of non-zero values. 17,560 out of 18,272 contigs is found in MT compared to MG.
+ratio.present.NA.transcripts = nonzeros / nrow(rowsum) * 100 # 96.1 NA degradation genes identified in MG were found in MT data set. 
+```
+
+## Keep only NA contigs with presence in at least one sample
+```{r}
+MT_NA_pstv = MT_NA[rowSums(MT_NA[sapply(MT_NA, is.numeric)]) > 0,] # filter
+rowsum = as.data.frame(rowSums(MT_NA_pstv[sapply(MT_NA_pstv, is.numeric)])) # Check that there are no zeros
+```
+
+## Filter out in Annot_NA the contigs not selected in MT_NA_pstv
+```{r}
+annot_NA_pstv = annot_NA |> filter(contig_id %in% MT_NA_pstv$`MT_NA_full$contig_id`) # 17,560 obs in 34 vars
+```
+
+## Export Clean annot_NA and Clean MT_NA
+```{r}
+vroom::vroom_write(annot_NA_pstv, file = here::here("data", "clean", "annot_NA_present_in_MT.tsv")) #9.3 MB
+vroom::vroom_write(MT_NA_pstv, file = here::here("data", "clean", "merged_contig_abundance_cpm_NAgenes_present_in_MT.tsv")) # 6.1 MB
+```
+
+### Clean up environment
+```{r}
+rm(annot)
+rm(MT)
+rm(annot)
+rm(MT_NA)
+rm(MT_NA_full)
+rm(MT_NA_pstv)
+rm(rowsum)
+rm(nonzeros)
+rm(ratio.present.NA.transcripts)
+rm(annot_NA_pstv)
+```
+
+# -------------------------------
