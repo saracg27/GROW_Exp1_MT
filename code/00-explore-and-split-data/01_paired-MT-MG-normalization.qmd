@@ -1,0 +1,159 @@
+---
+title: "01_paired-MTX-MGX-normalization"
+author: "Sara"
+format: html
+---
+
+We can normalize the MT data with the paired MG data. To do so, we divide the TPM by the CPM in the MG data.
+
+One problem that we can encounter is that MG for that specific sample may be zero. In this case we need to either impute the value (like the half the minimum observed value for that count, for example). Or eliminate the sample altogether. The first option is the ideal one, the only problem is to find the best imputation approach.
+
+We will try this approach with the NA degradation genes subset. 
+# ---------------------------- 
+# IMPORT DATA 
+## Mapping file
+
+```{r}
+map = vroom(file = here::here("data", "raw", "mapping_file.tsv")) # 
+map = as.data.frame(map)
+rownames(map) = map$alias
+map_sorted = map[order(row.names(map)),] # Sort by row name
+map_sorted = map_sorted[,3:7]
+map_sorted = as.data.frame(unclass(map_sorted), 
+                           stringsAsFactors = TRUE)
+```
+
+## MG-NAdeg subset
+
+```{r}
+MG = vroom(file = here::here("data", "clean", "degradation_mgx_gene_abundance_cpm.csv")) # 88.5 secs -  26,423,794 obs in 140 vars
+MG = as.data.frame(MG)
+row.names(MG) = MG$...2
+MG$...1 = NULL
+MG$...2 = NULL
+```
+
+### get gene ids
+
+```{r}
+deg_gene_ids = rownames(MG)
+mg = MG
+rm(MG)
+```
+
+## MT data
+
+```{r}
+MT = vroom(file = here::here("data", "raw", "merged_gene_abundance_cpm.tsv")) # 88.5 secs -  26,423,794 obs in 140 vars
+spec(MT)
+MT = as.data.frame(MT)
+rownames(MT) = MT$...1
+rownames(MT)
+```
+
+## NAdeg Annotations
+
+```{r}
+annot_NA = vroom(file = here::here("data", "clean", "degradation_gene_annotations.csv")) # 0.38 secs - 18,272 obs in 34 vars
+annot_NA_percentage = 18272/26423794*100 # 0.07%
+```
+
+# ----------------------------
+
+# DATA WRANGLING
+
+## Subset rownames of MT present in MG
+
+```{r}
+MT.deg = MT[c(MT$`...1` %in% deg_gene_ids),] 
+rm(MT)
+mt = MT.deg
+rm(MT.deg)
+```
+
+## Find common samples
+
+There are 140 columns in mt compared to the 190 in mg. There are clearly some libraries that failed, or samples that were not sequenced. Find the common between the two, and get the corresponding mapping file.
+
+### Clean mt col names
+
+```{r}
+col_mt = as.data.frame(colnames(mt))
+# Find everything before the three dashes and erase. Then, find everything before the fist dot and erase. This will keep the same names as in the metadata file. 
+clean_col_mt = colnames(mt)
+clean_col_mt = gsub(".*---","", clean_col_mt)
+clean_col_mt = gsub(".*\\.", "", clean_col_mt)
+```
+
+### Order mt cols
+
+
+```{r}
+low_qc_delete = c(
+"NS.1939.001.NEBNext_dual_i7_202---NEBNext_dual_i5_250.7-Mesocosm-4-1-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_207---NEBNext_dual_i5_255.12-Mesocosm-6-2-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_208---NEBNext_dual_i5_256.13-Mesocosm-7-1-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_215---NEBNext_dual_i5_263.20-Mesocosm-10-2-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_216---NEBNext_dual_i5_264.21-Mesocosm-11-1-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_218---NEBNext_dual_i5_266.23-Mesocosm-12-1-Exp1-D-0-Sed",
+"NS.1939.001.NEBNext_dual_i7_223---NEBNext_dual_i5_271.28-Mesocosm-2-2-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_224---NEBNext_dual_i5_272.29-Mesocosm-3-1-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_225---NEBNext_dual_i5_273.30-Mesocosm-3-2-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_226---NEBNext_dual_i5_274.31-Mesocosm-4-1-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_227---NEBNext_dual_i5_275.32-Mesocosm-4-2-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_232---NEBNext_dual_i5_280.37-Mesocosm-7-1-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_233---NEBNext_dual_i5_281.38-Mesocosm-7-2-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_234---NEBNext_dual_i5_282.39-Mesocosm-8-1-Exp1-D8-Sed",
+"NS.1939.001.NEBNext_dual_i7_237---NEBNext_dual_i5_285.42-Mesocosm-9-2-Exp1-D8-Sed")
+```
+
+```{r}
+clean_col_mt = as.data.frame(clean_col_mt)
+
+rownames(clean_col_mt) = clean_col_mt$clean_col_mt # Unable to set rownames with col names be rror in `.rowNamesDF<-`(x, value = value) :  duplicate 'row.names' are not allowed. In addition: Warning message: non-unique values when setting 'row.names':
+# Copy paste the repeated values in a new dataframe and explore
+repeated_col_names_mt = as.data.frame(c("12-Mesocosm-6-2-Exp1-D-0-Sed", "13-Mesocosm-7-1-Exp1-D-0-Sed", "20-Mesocosm-10-2-Exp1-D-0-Sed", "21-Mesocosm-11-1-Exp1-D-0-Sed", "23-Mesocosm-12-1-Exp1-D-0-Sed", "28-Mesocosm-2-2-Exp1-D8-Sed", "29-Mesocosm-3-1-Exp1-D8-Sed", "30-Mesocosm-3-2-Exp1-D8-Sed", "31-Mesocosm-4-1-Exp1-D8-Sed", "32-Mesocosm-4-2-Exp1-D8-Sed", "37-Mesocosm-7-1-Exp1-D8-Sed", "38-Mesocosm-7-2-Exp1-D8-Sed", "39-Mesocosm-8-1-Exp1-D8-Sed", "42-Mesocosm-9-2-Exp1-D8-Sed", "7-Mesocosm-4-1-Exp1-D-0-Sed"))
+names(repeated_col_names_mt) = c("repeated")
+col_mt_sorted = clean_col_mt[order(row.names(clean_col_mt)),] # Sort by row name
+col_mt_sorted
+```
+
+# ---------------------
+
+# Explore the problem with the mesocosms names and repetitions in MT
+
+```{r}
+clean_col_mt$mesocosm = clean_col_mt$clean_col_mt
+clean_col_mt$mesocosm = sub('^[[:digit:]]+',"", clean_col_mt$mesocosm)
+clean_col_mt$mesocosm = sub('^-',"", clean_col_mt$mesocosm)
+clean_col_mt$clean_col_mt = sub("D-0", "D0", clean_col_mt$clean_col_mt)
+clean_col_mt = clean_col_mt |> 
+  separate(clean_col_mt, c("id_num", "meso", "meso_num", "rep", "exp", "time", "comp"), "-")
+str(clean_col_mt)
+clean_col_mt$id_num = as.numeric(clean_col_mt$id_num)
+write.csv(repeated_col_names_mt, file = here("data", "clean", "repeated_col_names_mt.csv"))
+```
+
+# Collect repeated full names
+
+```{r}
+keep = as.vector(repeated_col_names_mt$repeated)
+repeated_full_names = col_mt |> 
+  filter(str_detect(`colnames(mt)`, paste(keep, collapse = "|")))
+write.csv(repeated_full_names, file = here("data", "clean", "repeated_full_names_mt.csv"))
+```
+
+There were apparently 15 samples that didn't pass in the first run, that were rerun a second time. In the file *Wetland_Treatment_Systems_for_Remediation\_-\_3_NovaSeqReadSet_2023-05-15* located in the Miscellanea directory of this project, we can see the operation number (1945) with an ulterior date to the main opertion (1939)
+
+# -------------------------
+
+### Clean mg col names
+
+```{r}
+colnames(mg)
+# Find everything before the three dashes and erase. Then, find everything before the fist dot and erase. This will keep the same names as in the metadata file. 
+clean_col_mg = colnames(mg)
+clean_col_mg = gsub(".*---","", clean_col_mg)
+clean_col_mg = gsub(".*\\.", "", clean_col_mg)
+clean_col_mg
+```
