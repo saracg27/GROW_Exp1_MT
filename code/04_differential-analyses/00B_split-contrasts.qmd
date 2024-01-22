@@ -28,6 +28,7 @@ pacman::p_load(data.table, here, tidyverse, gdata, gplots, ggrepel, limma, DESeq
 ## Data
 ### counts
 ```{r}
+library(vroom)
 countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D8.tsv'), col_names = TRUE)
 ```
 
@@ -35,3 +36,194 @@ countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D8.
 ```{r}
 meta <- read.csv(file = here::here('data', 'clean', 'metaD8.csv'), header = TRUE, sep = ",")
 ```
+
+# ------------------------
+# Clean Data
+# ------------------------
+
+## Clean countData names to match metadata
+```{r}
+countData <- as.data.frame(countData) # As dataframe to reoder in base R
+colnames(countData) <- sub(".*_i5_", "", colnames(countData))
+colnames(countData) <- sub("^[^.]+\\.", "", colnames(countData))
+countData <- countData[,order(colnames(countData))]
+names(countData)
+```
+
+## Change row names to feature_id
+```{r}
+row.names(countData) <- countData$feature_id
+countData$feature_id <- NULL
+```
+
+## Keep only samples present in countData
+```{r}
+# Get the same rows as columns in countData (not root samples)
+meta <- meta[!meta$Compartment == "Roots",]
+```
+
+## Recode factors in meta
+```{r}
+meta$Time <- NULL
+meta$Sampling_date <- NULL
+meta$SampleID <- NULL
+meta$Compartment <- factor(meta$Compartment,
+                           levels = c("Sediments", "Rhizosphere"),
+                           labels = c("sdmt", "rhizo"))
+meta$Sample_type <- factor(meta$Sample_type,
+                           levels = c("No_plant", "Carex"),
+                           labels = c("unplanted", "carex"))
+meta$Water_type <- factor(meta$Water_type,
+                          levels = c("Artificial_OSPW", "OSPW"),
+                          labels = c("ctl", "ospw"))
+
+meta$treatment <- paste0(meta$Compartment, "_", meta$Sample_type, "_", meta$Water_type)
+meta$treatment <- factor(meta$treatment, 
+                         levels = c("sdmt_unplanted_ctl", "sdmt_unplanted_ospw", "sdmt_carex_ospw", "rhizo_carex_ospw" ))
+meta <- meta[order(meta$alias),]
+rownames(meta) <- meta$alias
+```
+
+
+
+
+# LOOP FOR SPLITING THE 
+
+
+```{r}
+library(data.table, here, vroom)
+data_dir <- here("data", "clean") # Set the directory where your files are located
+file_list <- list.files(path = data_dir, pattern = "^merged_gene_abundance_D.*\\.tsv$", full.names = TRUE) # Get a list of all the files in the directory
+
+# Get the total number of files
+total_files <- length(file_list)
+
+# Iterate over each file
+for (file in file_list) {
+  # Extract the file name without the extension
+  file_name <- tools::file_path_sans_ext(basename(file))
+  
+  # Extract the number from the file name
+  file_number <- str_extract(file_name, "\\d+")
+
+  # Construct the metadata file name
+  meta_file <- file.path(data_dir, paste0("metaD", file_number, ".csv"))
+  
+  # Check if the corresponding metadata file exists
+  if (!file.exists(meta_file)) {
+    cat("Metadata file not found for", file, "\n")
+    next
+  }
+  
+  # Print the progress message
+  cat("Processing file number", i, "out of total", total_files, "\n")
+  
+  # Load the data from the tsv file
+   # data <- fread(file)
+  countData <- vroom(file = file, col_names = TRUE)
+  
+  # Clean countData names to match metadata
+  countData <- as.data.frame(countData) # As dataframe to reoder in base R
+  colnames(countData) <- sub(".*_i5_", "", colnames(countData))
+  colnames(countData) <- sub("^[^.]+\\.", "", colnames(countData))
+  countData <- countData[,order(colnames(countData))]
+  # names(countData)
+  
+  # Change row names to feature_id
+  row.names(countData) <- countData$feature_id
+  countData$feature_id <- NULL
+  
+  # Reduce uninformative features: Threshold of 10 
+  countData1 <- countData[rowSums(countData) > 5,] # Down from 26M genes to 2 237 972 genes (2.2M) if >10. 4 871 503 genes    (4.8M) if >5
+  
+  # Load the metadata from the csv file
+  meta <- read.csv(meta_file)
+  
+  # Keep only samples present in countData
+  meta <- meta[!meta$Compartment == "Roots",]
+  
+  meta$Time <- NULL
+  meta$Sampling_date <- NULL
+  meta$SampleID <- NULL
+  meta$Compartment <- factor(meta$Compartment,
+                           levels = c("Sediments", "Rhizosphere"),
+                           labels = c("sdmt", "rhizo"))
+  meta$Sample_type <- factor(meta$Sample_type,
+                           levels = c("No_plant", "Carex"),
+                           labels = c("unplanted", "carex"))
+  meta$Water_type <- factor(meta$Water_type,
+                          levels = c("Artificial_OSPW", "OSPW"),
+                          labels = c("ctl", "ospw"))
+
+  meta$treatment <- paste0(meta$Compartment, "_", meta$Sample_type, "_", meta$Water_type)
+  meta$treatment <- factor(meta$treatment, 
+                         levels = c("sdmt_unplanted_ctl", "sdmt_unplanted_ospw", "sdmt_carex_ospw", "rhizo_carex_ospw" ))
+  meta <- meta[order(meta$alias),]
+  rownames(meta) <- meta$alias
+  
+  
+  if (all(row.names(meta) == colnames(countData))) {
+  print("Sanity check ok: meta rownames same as countData colnames")
+   } else {
+  print("ERROR: not all row names are the same")
+   }
+  
+  # Print the progress message
+  cat("Subsetting file number", i, "out of total", total_files, "\n")
+  
+  # Perform some splitting of contrasts
+meta_1 <- meta[(meta$treatment == "sdmt_unplanted_ctl" | meta$treatment == "sdmt_unplanted_ospw"), ]
+meta_2 <- meta[(meta$treatment == "sdmt_unplanted_ctl" | meta$treatment == "sdmt_carex_ospw"), ]
+meta_3 <- meta[(meta$treatment == "sdmt_unplanted_ospw" | meta$treatment == "sdmt_carex_ospw"), ]
+meta_4 <- meta[(meta$treatment == "sdmt_carex_ospw" | meta$treatment == "rhizo_carex_ospw"), ]
+meta_5 <- meta[(meta$treatment == "sdmt_unplanted_ospw" | meta$treatment == "rhizo_carex_ospw"), ]
+meta_6 <- meta[(meta$treatment == "sdmt_unplanted_ctl" | meta$treatment == "rhizo_carex_ospw"), ]
+
+  # Filter the columns in data based on row names in metadata
+  common_names <- intersect(colnames(countData), rownames(meta_1))
+  countData_1 <- countData[, common_names]
+  countData1 <- countData_1[rowSums(countData_1) > 5,] # 2 913 468 (2.9M genes)
+  countData11 <- countData_1[!rowSums(countData_1) == 0,] # 7 649 176 (7.5M genes)
+  rm(countData_1) # save memory
+    # Save the data as RDS objects
+  saveRDS(countData1, file = here("data", "clean", paste0(file_name, "c1_5.rds")))
+  saveRDS(countData11, file = paste0(countData11, "countData1_0.rds"))
+  saveRDS(meta_1, file = here("data", "clean", paste0(meta_1, "countData1_5.rds")))
+  
+  common_names <- intersect(colnames(countData), rownames(meta_2))
+  countData_2 <- countData[, common_names]
+  
+  common_names <- intersect(colnames(countData), rownames(meta_3))
+  countData_3 <- countData[, common_names]
+  
+  common_names <- intersect(colnames(countData), rownames(meta_4))
+  countData_4 <- countData[, common_names]
+  
+  common_names <- intersect(colnames(countData), rownames(meta_5))
+  countData_5 <- countData[, common_names]
+  
+  common_names <- intersect(colnames(countData), rownames(meta_6))
+  countData_6 <- countData[, common_names]
+  
+  
+  
+  
+  
+  
+  # Save the data as RDS objects
+  saveRDS(subset1, file = paste0(file_name, "_subset1.rds"))
+  saveRDS(subset2, file = paste0(file_name, "_subset2.rds"))
+  
+  # Save the data as tsv and csv files
+  write.table(subset1, file = paste0(file_name, "_subset1.tsv"), sep = "\t", quote = FALSE)
+  write.csv(subset2, file = paste0(file_name, "_subset2.csv"), row.names = FALSE)
+  
+  # Remove the heavy tsv file and its corresponding metadata from the environment
+  rm(countData, meta)
+  
+  # Print a message indicating the completion of processing for the current file
+  cat("Processing completed for", file, "\n")
+}
+
+```
+
