@@ -9,7 +9,7 @@ library(tidyverse)
 library(gdata)
 library(DESeq2)
 # Data
-countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D-0.tsv'), col_names = TRUE)
+countData <- vroom(file = here::here('data', 'clean', 'merged_gene_abundance_D0.tsv'), col_names = TRUE)
 meta <- read.csv(file = here::here('data', 'clean', 'metaD0.csv'), header = TRUE, sep = ",")
 
 # Clean Data
