@@ -1,0 +1,59 @@
+---
+title: "Normalization of MT based on MG using DSeq"
+format: html
+---
+
+If you only have the ASV (Amplicon Sequence Variant) count and the annotation table without gene lengths, you can try the DESeq2 normalization method. DESeq2 is widely used for differential expression analysis of RNA-seq data, and its normalization method accounts for sequencing depth and RNA composition differences across samples. While DESeq2 is primarily used for RNA-seq data, it can also be applied to normalize metatranscriptomic data based on metagenomic data when gene lengths are not available.
+
+To perform DESeq2 normalization, follow these steps:
+
+1. Install and load the required packages:
+
+```{r}
+install.packages("BiocManager")
+BiocManager::install("DESeq2")
+
+library(DESeq2)
+```
+
+2. Load your metagenomic and metatranscriptomic count data. For this example, we'll assume you have two count matrices named `metagenomic_counts` and `metatranscriptomic_counts` (rows representing genes and columns representing samples).
+
+3. Combine the metagenomic and metatranscriptomic count data into a single matrix:
+
+```{r}
+combined_counts <- cbind(metagenomic_counts, metatranscriptomic_counts)
+```
+
+4. Create a metadata table specifying the sample type (metagenomic or metatranscriptomic) for each sample:
+
+```{r}
+sample_type <- c(rep("metagenomic", ncol(metagenomic_counts)),
+                 rep("metatranscriptomic", ncol(metatranscriptomic_counts)))
+
+metadata <- data.frame(Sample = colnames(combined_counts),
+                       Type = sample_type)
+```
+
+5. Create a DESeqDataSet object:
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = combined_counts,
+                              colData = metadata,
+                              design = ~ Type)
+```
+
+6. Normalize the count data using DESeq2:
+
+```{r}
+dds <- estimateSizeFactors(dds)
+normalized_counts <- counts(dds, normalized = TRUE)
+```
+
+7. Extract the normalized metagenomic and metatranscriptomic count data:
+
+```{r}
+normalized_metagenomic_counts <- normalized_counts[, metadata$Type == "metagenomic"]
+normalized_metatranscriptomic_counts <- normalized_counts[, metadata$Type == "metatranscriptomic"]
+```
+
+Now, you have normalized metagenomic and metatranscriptomic count data using DESeq2, which you can use for further analysis. Keep in mind that this normalization method does not take into account gene lengths or other gene-specific factors. Depending on your specific research question and dataset characteristics, alternative normalization methods may be more appropriate.
