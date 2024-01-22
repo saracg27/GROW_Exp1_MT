@@ -1,0 +1,454 @@
+---
+title: "04_analysis_degradation_genes"
+format:
+  html:
+    theme: spacelab
+    toc: true
+    number-sections: true
+---
+# Load libraries
+```{r}
+pacman::p_load(vroom, data.table, vegan, tydiverse, ggplus, here)
+```
+
+# Load data 
+```{r}
+map = read.csv(file = "../data/clean/mapping_file.tsv",  dec = ".", header = T, row.names = 1,  sep = "\t", comment.char = "")
+gene.abund.deg = as.data.frame(vroom(file = here("data", "clean", "merged_contig_abundance_cpm_NAgenes_present_in_MT.tsv")))
+annot.deg = as.data.frame(vroom(file = "./data/clean/degradation_gene_annotations.csv"))
+```
+
+Take a quick look at the data
+```{#r data structure}
+str(map)
+str(gene.abund.deg)
+str(annot.deg)
+dim(gene.abund.deg) # 18272   191
+dim(annot.deg) #18272    34
+```
+
+There are some columns loaded that are not needed (previous row numbers). Erase those columns
+```{r}
+annot.deg$...1 = NULL
+gene.abund.deg$...1 = NULL
+names(gene.abund.deg)[1] <- "gene_id"  # rename contig
+```
+
+# Clean up datasets
+```{r rename row names}
+rownames(annot.deg) <- annot.deg$gene_id
+rownames(gene.abund.deg) <- gene.abund.deg$gene_id
+gene.abund.deg$gene_id = NULL
+```
+
+Order by row name
+```{r ordering  by row name and checking}
+gene.abund.deg = gene.abund.deg[order(row.names(gene.abund.deg)),]
+annot.deg = annot.deg[order(row.names(annot.deg)),]
+row.names(annot.deg) == row.names(gene.abund.deg) # Sanity check, all true
+```
+
+Delete row corresponding to Sediments.Sediments.OSPW.D-0 for which there is only one sample
+```{r delete row}
+todelete_map <- which(grepl("NS.1871.002.IDT_i7_35---IDT_i5_35.20-Mesocosm-10-2-Exp1-D-0-Sed", rownames(map))) # deleted below in gene df
+map <- map[-c(todelete_map),] # delete the row 
+map = map[order(row.names(map)),] # order 
+todelete_gene <- which(grepl("NS.1871.002.IDT_i7_35---IDT_i5_35.20-Mesocosm-10-2-Exp1-D-0-Sed", colnames(gene.abund.deg))) 
+gene.abund.deg <- gene.abund.deg[,-c(todelete_gene)]
+```
+
+oOrder by row and column name
+```{r order data}
+gene.abund.deg = gene.abund.deg[,order(colnames(gene.abund.deg))]
+row.names(map) == colnames(gene.abund.deg) # Sanity check, all true
+```
+
+Create grouping factor for permanova
+```{r order data}
+map$group <- as.factor(paste(map$Compartment, map$Sample_type, map$Water_type, map$Time, sep = ".")) # inspect, between 4 and 8 replicates
+```
+
+# Prepare data for similarity index calculations
+```{r}
+gene = gene.abund.deg
+gene.t <- t(gene) # t samples as rows, species as columns to match metadata
+rownames(gene.t) == rownames(map) # check all TRUE
+
+# ---- Prepare abundance matrix to calculate bray-curtis dissimilarity ---- #
+gene.rel <- (gene.t/rowSums(gene.t)) #Normalization by relative abundance
+(rowSums(gene.rel)) #Sanity check all 1
+```
+
+Calculate distance matrix
+```{r Distance matrix}
+# ---- Calculate bray-curtis dissimilarity ---- #
+dist = vegdist(gene.rel, method = "bray")
+#write.csv(as.matrix(dist), file = "./data/test/dist-10000.csv") # subset genes
+```
+
+Calculate Permanova
+```{r Permanova}
+set.seed(123456)
+perm = adonis2(dist ~ Compartment * Sample_type * Water_type * Time, data = map)
+write.csv(as.matrix(perm), file = "./output/tables/permanova_full_model_degradation_genes.csv") 
+perm
+perm.reduce = adonis2(dist ~ group, data = map)
+perm.reduce
+```
+
+Regarding community composition of degradation genes, the water type (OSPW or control) did not have an effect on the structure of potential NA genes. The effect of the compartment strongly depended on the sampling time (probably at time D-0 there was no difference). Also, the sample type (planted with Carex vs unplanted) had an effect on the dissimilarity between samples. 
+ 
+Calculate dispersion
+```{r betadisper}
+# calculate dispersion
+betadisp = betadisper(dist, map$group, bias.adjust = TRUE) # adjust for small replication
+anova(betadisp)
+betadisp$group.distances
+permuts = permutest(betadisp, pairwise = TRUE, permutations = 99)
+permuts$groups
+permuts$tab
+permuts$pairwise
+plot(betadisp)
+boxplot(betadisp)
+scores(betadisp)
+# find contributing genes
+group = map$group
+gene.e = t(gene.rel)
+#simp = simper(gene.e, group, trace = TRUE) # this process exhausts memory at 0 perms in a 10000 subset
+#summary.simper = summary(simp, ordered = TRUE, digits = 3)
+```
+
+# Aitchison distance 
+```{r PERMANOVA}
+aitchison.dist = vegdist(gene.rel, method = "robust.aitchison")
+ait.perm = adonis2(aitchison.dist ~ Compartment*Water_type*Time*Sample_type, data = map)
+ait.perm
+write.table(ait.perm, file = "./output/tables/Permanova_full-model_robust.aitchison.csv", sep = "\t", dec = ".", col.names = NA)
+```
+
+```{r PCoA}
+pcoa.aitch <- cmdscale(aitchison.dist, eig = T) # calculate PCoA 
+explainedvar1 <- (pcoa.aitch$eig[1]/sum(pcoa.aitch$eig)*100)#Axis1 the first axis explains 7.561433%
+explainedvar1
+explainedvar2 <- (pcoa.aitch$eig[2]/sum(pcoa.aitch$eig)*100)#Axis2 the second axis explains 2.619631% of the variance
+explainedvar2
+sumeigen <- (explainedvar1 + explainedvar2)# # toghether, axis 1 and 2 explain 10.18106% of the variance.
+sumeigen
+# ----------- Create coordinates for axis 1 and 2 for PCoA from eigenvalues ------------- #
+com.pcoa.points <- data.frame(pcoa.aitch$points) # create a column with the coordinates for each sample
+colnames(com.pcoa.points) <- c("Axis1", "Axis2") # rename coordinate columns
+
+com.pcoa.points.bind <- cbind(com.pcoa.points,map)
+dim(com.pcoa.points) # 189   2
+dim(map) #189   8
+#Everything need to be in the same object, ordered community and ordered metadata
+(str(com.pcoa.points.bind))
+com.pcoa.points.bind$Treatment = paste(com.pcoa.points.bind$Sample_type, com.pcoa.points.bind$Water_type, sep = ".")
+com.pcoa.points.bind$comp.treat = paste(com.pcoa.points.bind$Compartment, com.pcoa.points.bind$Sample_type, com.pcoa.points.bind$Water_type, sep = ".")
+com.pcoa.points.bind$comp.treat = as.factor(com.pcoa.points.bind$comp.treat)
+```
+
+```{r PCoA ordination}
+com.pcoa.points.bind$Time <- factor(com.pcoa.points.bind$Time, levels = c("D-0", "D8", "D28", "D42", "D84"))
+library(tidyverse)
+ordi.ait <- ggplot(data = com.pcoa.points.bind, aes(x = Axis1, y = Axis2)) +
+        geom_point(aes(shape = Compartment, color = Time, size = 5)) + 
+        scale_shape_manual(values = c(16,17,1)) +
+        scale_color_manual(values = c("#fde725", "#5ec962","#21918c", "#3b528b", "#440154")) + 
+        xlab("PCoA axis1 = 7.56 %") + 
+        ylab("PCoA axis2 = 2.62 %") + 
+        ggtitle("PCoA of Degradation genes Based on Robust Aitchison Distance") +
+        theme_classic() +
+        theme(axis.title.x = element_text(size = 24, face = "bold"),
+                     axis.text.x = element_text(size = 20),
+                     #axis.ticks.x = element_blank(),
+                     axis.title.y = element_text(size = 24, face = "bold"),
+                     axis.text.y = element_text(size = 20),
+                     legend.position = "right",
+                     legend.text = element_text(size = 18),
+                     legend.title = element_blank(),
+                     axis.line = element_line(size = 1),
+                     plot.title = element_text(hjust = 0.5, face = "bold")) +
+        guides(colour = guide_legend(override.aes = list(size=5))) +
+        guides(shape = guide_legend(override.aes = list(size=5))) +
+        scale_size(guide="none")  # to hide the part of the legend corresponding to size
+ordi.ait
+ggsave("./output/figures/PCoA.FULL-NA_degradation_genes_time_effect_aitchison.pdf", ordi.ait, height = 8.5, width = 11, units = "in")
+
+```
+
+There seems to be some outliers. Grep samples 68, 69 and 70 and get outside
+```{r}
+todelete_outliers = c("68", "69", "70")
+com.pcoa.points.bind.no_outliers =  com.pcoa.points.bind[-grep("68", com.pcoa.points.bind$alias),]
+com.pcoa.points.bind.no_outliers =  com.pcoa.points.bind.no_outliers[-grep("69", com.pcoa.points.bind.no_outliers$alias),]
+com.pcoa.points.bind.no_outliers =  com.pcoa.points.bind.no_outliers[-grep("70", com.pcoa.points.bind.no_outliers$alias),]
+```
+
+```{r PCoA ordination}
+com.pcoa.points.bind.no_outliers$Time <- factor(com.pcoa.points.bind$Time, levels = c("D-0", "D8", "D28", "D42", "D84"))
+ordi.ait.noout <- ggplot(data = com.pcoa.points.bind.no_outliers, aes(x = Axis1, y = Axis2)) +
+        geom_point(aes(shape = Compartment, color = Time, size = 5)) + 
+        scale_shape_manual(values = c(16,17,1)) +
+        scale_color_manual(values = c("#fde725", "#5ec962","#21918c", "#3b528b", "#440154")) + 
+        xlab("PCoA axis1 = 7.56 %") + 
+        ylab("PCoA axis2 = 2.62 %") + 
+        ggtitle("PCoA of Degradation genes Based on Robust Aitchison Distance") +
+        theme_classic() +
+        theme(axis.title.x = element_text(size = 24, face = "bold"),
+                     axis.text.x = element_text(size = 20),
+                     #axis.ticks.x = element_blank(),
+                     axis.title.y = element_text(size = 24, face = "bold"),
+                     axis.text.y = element_text(size = 20),
+                     legend.position = "right",
+                     legend.text = element_text(size = 18),
+                     legend.title = element_blank(),
+                     axis.line = element_line(size = 1),
+                     plot.title = element_text(hjust = 0.5, face = "bold")) +
+        guides(colour = guide_legend(override.aes = list(size=5))) +
+        guides(shape = guide_legend(override.aes = list(size=5))) +
+        scale_size(guide="none")  # to hide the part of the legend corresponding to size
+ordi.ait.noout
+ggsave("./output/figures/PCoA.FULL-NA_degradation_genes_time_effect_aitchison.pdf", ordi.ait, height = 8.5, width = 11, units = "in")
+
+```
+
+Visualize the genes that are driving the effect 
+
+This cannot be done with adonis2. Coefficients are not available anymore. Maybe try to get an older version of vegan where adonis is still functioning?
+```{#r}
+# extract coefficients
+perm.genes = adonis(gene.t ~ Compartment*Water_type*Time*Sample_type, data = map)
+# Gets the coefficients
+coef <- coefficients(permanova_cohort)["cohort1",]
+
+# Gets the highest coefficients
+top.coef <- sort(head(coef[rev(order(abs(coef)))],20))
+
+# Plots the coefficients
+top_taxa_coeffient_plot <- ggplot(data.frame(x = top.coef,
+                                             y = factor(names(top.coef),
+                         unique(names(top.coef)))),
+                                  aes(x = x, y = y)) +
+  geom_bar(stat="identity") +
+  labs(x="", y="", title="Top Taxa") +
+  theme_bw()
+
+top_taxa_coeffient_plot
+# Gets corresponding Genus level names and stores them to top.coef
+names <- rowData(tse)[names(top.coef), ][,"Genus"]
+
+# Adds new labels to the plot
+top_taxa_coeffient_plot <- top_taxa_coeffient_plot +
+  scale_y_discrete(labels = names) # Adds new labels
+top_taxa_coeffient_plot
+```
+
+# Analysis of the relative abundance of genes
+We create barplots of relative abundance of degradation genes, where the gene name will act as the taxonomic rank. 
+First, we need to create the gene table for the stacked barplots (working with the relative abundance, to which with join the gene_name column). The objective is to sum up the rows by the value contained in the column gene_name, then filter for low abundances, sum the low abundances in a column called other, then plot the chart. 
+```{r}
+gene_names = as.data.frame(annot.deg$product_name)
+names(gene_names)[1] = "gene_name"
+rownames(gene_names) = annot.deg$gene_id
+rownames(gene_names) == rownames(gene.abund.deg)
+genes.abund.names = cbind( gene.abund.deg, gene_names) # create a raw_bis
+```
+
+Summarize by gene name
+```{r}
+abund_gene <- genes.abund.names |> group_by(gene_name) |> summarise_all(sum) # ASV counts aggregated by Phylum level
+abund_gene = as.data.frame(abund_gene) # return to data.frame form
+```
+
+There are 30 different genes related to NA degradation (as compared to our in-house database) in our data set
+
+Transpose to have samples as rows to match metadata
+```{r}
+# First column as rownames
+rownames(abund_gene) = abund_gene$gene_name
+# Erase first column
+abund_gene = abund_gene[,-1]
+#Transpose, samples as rows
+abund_gene_t <- t(abund_gene)
+```
+
+```{r relative abundance}
+str(abund_gene_t) 
+abund_gene_t = as.data.frame(abund_gene_t)
+abund_gene_t.rel <- (abund_gene_t/rowSums(abund_gene_t)) # relative abundance
+rowSums(abund_gene_t.rel)
+```
+
+Select only the most abundant groups
+```{r abudant genes}
+high_abund = abund_gene_t.rel[,colMeans(abund_gene_t.rel)>0.01]
+dim(high_abund) # 16 NA related degradation genes
+high_abund$Others = 1 - rowSums(high_abund)#Add an "Other" category
+```
+
+Create table for stacked barcharts
+```{r prok.long}
+rownames(high_abund) == rownames(map)
+prok.treat <- cbind(map, high_abund)
+dim(prok.treat) # 189 samples in 25 variables
+prok.long = gather(prok.treat, Taxa, RelAbund, 10:ncol(prok.treat)) # Here, select columns that contain the relative abundance of taxa, beware of including any metadata variable.
+View(prok.long) 
+dim(prok.long) # 3213 obs in 10 variables
+```
+
+Rearrange factor levels 
+
+```{r levels}
+levels(prok.long$Time)
+prok.long$Time <- factor(prok.long$Time, levels = c( "D-0", "D8", "D28", "D42", "D84"))
+prok.long$Compartment <- factor(prok.long$Compartment, levels = c( "Sediments", "Rhizosphere", "Roots"))
+prok.long$Sample_type <- factor(prok.long$Sample_type, levels = c( "No_plant", "Carex"), labels = c("No plant", "Carex"))
+prok.long$Water_type <- factor(prok.long$Water_type, levels = c( "Artificial_OSPW", "OSPW"), labels = c("Control", "OSPW"))
+```
+
+# Create stacked barchart
+
+Color palette
+```{r palette}
+CPCOLS1 <- c("#FF4040", "#1874CD", "#00CED1", "#FFD700", "#008B8B",  
+             "#8B8B83", "#87CEFF", "#CD69C9", "#FF7F50", "#8B1A1A", 
+             "#FFF68F", "#242424")
+c("#0A0909", "#FFFFFF", "#FFFFFF")
+
+CPCOLS2 = c("#7FFFD4", "#458B74", "#C1CDCD", "#838B8B", "#FF4040", "#8B2323", "#FFD39B", "#8B7355", "#00BFFF", "#104E8B", "#76EE00", "#458B00", "#FFD700", "#8B7500", "#FF34B3", "#8B1C62", "#0A0909")
+```
+
+Create the plot title
+```{r plot title}
+mytitle = ("Relative abundance of abundant NA degradation genes")
+```
+
+Relevel "Others" group for it to be at the end
+```{r Relevel}
+prok.long$Taxa = fct_relevel(prok.long$Taxa, "Others", after = Inf)
+```
+#Create the stack bar chart
+```{r stacked bar chart}
+stack = ggplot(prok.long, aes(fill = Taxa, y = RelAbund, x = Time)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  labs( y = "Relative abundance",
+        title = mytitle) + 
+  theme_minimal() +
+  theme(strip.text.x = element_text(face = "bold", size = 18),
+        axis.text.x = element_text(size = 16, angle = 360, hjust = 0.5, face = "bold"),
+        axis.text.y = element_text(size = 16, face = "bold"),
+        plot.title = element_text(face = "bold", size = 16),
+        legend.title = element_text(size = 14, color = "black", face = "bold"),
+        legend.text = element_text(size = 10, face ="bold", color ="black"),
+        axis.title = element_text(size = 16, face = "bold"),
+        rect = element_rect(fill = "white")) +
+  scale_fill_manual(values = CPCOLS2, guide = guide_legend(label.theme = element_text(face = "italic", size = 12))) +
+  scale_color_manual(values = CPCOLS2, guide = guide_legend(label.theme = element_text(face = "italic", size = 12))) +
+  facet_grid(.~ Water_type*Sample_type*Compartment,  scales = "free_x", space = "free_x") +
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  scale_x_discrete(name = "Time")
+stack
+ggsave(file = "./output/figures/relAbund.NAdeg_genes_16abund.eps", stack, width = 15, height = 7, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/relAbund.NAdeg_genes_16abund.tiff", stack, width = 15, height = 7, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/relAbund.NAdeg_genes_16abund.pdf", stack, width = 15, height = 7, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/relAbund.NAdeg_genes_16abund.png", stack, width = 15, height = 7, units = "in", dpi = 300, bg = "white")
+```
+
+
+# Calculate linearity for all genes, find autocorrelations, and model it. 
+Is the degradation community correlated with the general bacterial community? Maybe use mantel tests. 
+
+# Kruskal Wallis test loop through relative abundance gather by gene name 
+```{r}
+# Evaluate kruskal wallis test for the combination of all treatments: Date, compartment, Sample type and water type. 
+prok.treat.group = prok.treat[,-(1:7)]
+abund.kw = as_tibble(data.frame(prok.treat.group)) |> group_by(group)
+abund.kw
+abund.kw = as.data.frame(abund.kw)
+abund.kw.loop = abund.kw |> gather(key, value, -group)  |>
+    group_by(key) |> 
+    do(broom::tidy(kruskal.test(x = .$value, g = .$group)))
+abund.kw.loop
+as.data.frame(abund.kw.loop)
+#Export the dataframe in a new csv.
+
+write_excel_csv(abund.kw.loop,"./output/tables/kruskal_wallis_NA-degradation-genes-16abundant_Rel_abund.csv")
+
+
+
+#Select only those phyla that are significantly different for testing Dunn and creating boxplot
+
+abund.kw.loop.s = abund.kw.loop[(abund.kw.loop$p.value < (0.05/nrow(abund.kw.loop))),]
+abund.kw.loop.s = as.data.frame(abund.kw.loop.s)
+prok.treat.sg = prok.treat[,abund.kw.loop.s$key]
+class(prok.treat.sg) #data.frame
+str(prok.treat.sg)
+prok.treat.sg = cbind(Treatment = map[,8], prok.treat.sg)
+prok.treat.sg = as.data.frame(prok.treat.sg)
+str(prok.treat.sg) # 11 variables where 1 is Treatment and the orders are Phyla
+levels(as.factor(prok.treat.sg$Treatment))
+
+prok.treat.sg$Treatment = factor(prok.treat.sg$Treatment, 
+                                 levels = c("Sediments.No_plant.Artificial_OSPW.D-0", "Sediments.No_plant.Artificial_OSPW.D8", "Sediments.No_plant.Artificial_OSPW.D28", "Sediments.No_plant.Artificial_OSPW.D42", "Sediments.No_plant.Artificial_OSPW.D84", "Sediments.No_plant.OSPW.D-0" , "Sediments.No_plant.OSPW.D8", "Sediments.No_plant.OSPW.D28", "Sediments.No_plant.OSPW.D42", "Sediments.No_plant.OSPW.D84", "Sediments.Carex.OSPW.D-0", "Sediments.Carex.OSPW.D8", "Sediments.Carex.OSPW.D28", "Sediments.Carex.OSPW.D42", "Sediments.Carex.OSPW.D84", "Rhizosphere.Carex.OSPW.D-0", "Rhizosphere.Carex.OSPW.D8", "Rhizosphere.Carex.OSPW.D28", "Rhizosphere.Carex.OSPW.D42", "Rhizosphere.Carex.OSPW.D84", "Roots.Carex.OSPW.D-0", "Roots.Carex.OSPW.D8", "Roots.Carex.OSPW.D28", "Roots.Carex.OSPW.D42", "Roots.Carex.OSPW.D84"), 
+                                 labels = c("Sed.No Plant.Control.D-0", "Sed.No Plant.Control.D8", "Sed.No Plant.Control.D28", "Sed.No Plant.Control.D42", "Sed.No Plant.Control.D84", "Sed.No plant.OSPW.D-0" , "Sed.No plant.OSPW.D8", "Sed.No plant.OSPW.D28", "Sed.No plant.OSPW.D42", "Sed.No plant.OSPW.D84", "Sed.Carex.OSPW.D-0", "Sed.Carex.OSPW.D8", "Sed.Carex.OSPW.D28", "Sed.Carex.OSPW.D42", "Sed.Carex.OSPW.D84", "Rhizo.Carex.OSPW.D-0", "Rhizo.Carex.OSPW.D8", "Rhizo.Carex.OSPW.D28", "Rhizo.Carex.OSPW.D42", "Rhizo.Carex.OSPW.D84", "Root.Carex.OSPW.D-0", "Root.Carex.OSPW.D8", "Root.Carex.OSPW.D28", "Root.Carex.OSPW.D42", "Root.Carex.OSPW.D84"))
+```
+
+
+
+# Create individual boxplots for each gene
+
+
+```{r}
+# Recode treatment variables as factors
+map$Time <- factor(map$Time, levels = c( "D-0", "D8", "D28", "D42", "D84"))
+map$Compartment <- factor(map$Compartment, levels = c( "Sediments", "Rhizosphere", "Roots"), labels = c("Sed", "Rhizo", "Root"))
+map$Sample_type <- factor(map$Sample_type, levels = c( "No_plant", "Carex"), labels = c("No plant", "Carex"))
+map$Water_type <- factor(map$Water_type, levels = c( "Artificial_OSPW", "OSPW"), labels = c("Control", "OSPW"))
+# Recreate prok.treat.sig with desagreggated treatment variables
+prok.treat.sg = prok.treat[,abund.kw.loop.s$key]
+class(prok.treat.sg) #data.frame
+str(prok.treat.sg)
+prok.treat.sg.desagreggate = cbind(map[,c(2,4,5,6)], prok.treat.sg) #bind treatment variables
+prok.treat.sg.desagreggate = as.data.frame(prok.treat.sg.desagreggate)
+str(prok.treat.sg.desagreggate) # 15 variables where 1 is Treatment and the orders are Phyla
+prok.treat.sg.desagreggate$Treatment = paste(prok.treat.sg.desagreggate$Water_type, prok.treat.sg.desagreggate$Sample_type, prok.treat.sg.desagreggate$Compartment)
+levels(as.factor(prok.treat.sg.desagreggate$Treatment))
+prok.treat.sg.desagreggate$Treatment = factor(prok.treat.sg.desagreggate$Treatment, 
+                                 levels = c("Control No plant Sed", "OSPW No plant Sed", "OSPW Carex Sed", "OSPW Carex Rhizo", "OSPW Carex Root"))
+```
+
+```{r boxplots NA degradation genes}
+
+plots <- prok.treat.sg.desagreggate |> 
+  gather(key, value, -c("Compartment", "Water_type", "Time", "Sample_type", "Treatment")) |> 
+  ggplot(aes(x = Time, y = value, fill = Treatment)) +
+  geom_boxplot(alpha = 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.position = "bottom",
+        legend.title = element_text(size = 14, color = "black", face = "bold"),
+        legend.text = element_text(size = 10, face ="bold", color ="black"),
+        strip.text.x = element_text(face = "bold.italic", size = 11),
+        plot.title = element_text(size = 14, face = "bold")
+        ) +
+    facet_grid(.~ Water_type*Sample_type*Compartment,  scales = "free_x", space = "free_x") +
+  #scale_fill_manual(values = c("#00ff00", "#0000ff", "#00ffff", "#ff0000")) +
+  labs(y = "Relative abundance",
+       title = "Relative abundance of most abundant NA degradation related genes")
+
+faceted_plots <- facet_multiple(plots, facets = c("key"), # facet_multiple from ggplus package
+                  nrow = 4,
+                  ncol = 3,
+                  scales = "free_y")
+faceted_plots            
+
+ggsave(file = "./output/figures/NA_deg_genes_relAbund.eps", faceted_plots, width = 15, height = 10, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/NA_deg_genes_relAbund.tiff", faceted_plots, width = 15, height = 10, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/NA_deg_genes_relAbund.pdf", faceted_plots, width = 15, height = 10, units = "in", dpi = 300,bg = "white")
+ggsave(file = "./output/figures/NA_deg_genes_relAbund.png", faceted_plots, width = 15, height = 10, units = "in", dpi = 300, bg = "white")
+```
+
+
+

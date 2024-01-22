@@ -1,0 +1,32 @@
+---
+title: "NA degradation - MT contig analysis"
+format: html
+---
+
+# LOAD PACKAGES
+```{r}
+library(pacman)
+pacman::p_load(pacman, EBSeq, ggpubr, tidyverse, RColorBrewer, here, vroom, tictoc)
+```
+# -------------------------------
+
+# IMPORT DATA
+## Annotations
+```{r}
+tic()
+annot = vroom(file = here::here("data", "clean", "annot_NA_present_in_MT.tsv")) # 29.5 secs
+toc()
+colnames(annot)
+annot = as.data.frame(annot)
+n_distinct(annot$`#contig_id`) # 10,303,792 distinctive contigs
+```
+
+## MT data
+```{r}
+MT = vroom(file = here::here("data", "raw", "01_merged_contig_abundance_cpm.tsv")) # 18.5 secs
+head(MT)
+colnames(MT)
+MT = as.data.frame(MT)
+View(MT[1:5,1:10])
+rownames(MT) = MT$...1 # get contig code as rownames
+```
